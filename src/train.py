@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import trange
 import os
-import sys
 
 # === DEVICE SPEFICIATIONS ===
 ncores = os.cpu_count() or 1
@@ -80,14 +79,10 @@ def loss_function(graph, class_info, pclass=0.1, pfiber=1.0, sharpness=0.5, fina
         return loss, totutils
 
 if __name__ == '__main__':
-    # compute setup
-    idx = int(os.environ.get("SLURM_ARRAY_TASK_ID", 0))
-    ID = str(idx)
-
-    # * loading class info
+    # loading class info
     class_info = torch.tensor(np.loadtxt(datafile), dtype=torch.float, device=device)
     x_t = class_info
-    # * fiber info: trivial counter so far
+    # fiber info: trivial counter so far
     x_s = torch.arange(NFIBERS, dtype=torch.float, device=device).reshape(-1, 1)
 
     # make a fully connected graph fibers -> classes
@@ -106,9 +101,14 @@ if __name__ == '__main__':
     # initialize model
     gnn = GNN(Fdim=Fdim, B=3, F_s=x_s.shape[1], F_t=x_t.shape[1], T=NCLASSES).to(device)
     gnn.train()
-
-    # optimizers
     optimizer = torch.optim.Adam(gnn.parameters(), lr=lr)
+    if model_pre_trained:
+        checkpoint = torch.load(model_pre_trained, map_location=device)
+        gnn.load_state_dict(checkpoint['model_state'])
+        optimizer.load_state_dict(checkpoint['optim_state'])
+        start_epoch = checkpoint['epoch'] + 1 if retrain else nepochs
+    else:
+        start_epoch = 0
 
     # stored for analysis 
     losses = np.zeros(nepochs)
@@ -122,13 +122,7 @@ if __name__ == '__main__':
     variances = np.zeros(nepochs)
 
     # training loop
-    start_epoch = 0
-    model_path = sys.argv[1] if len(sys.argv) > 1 else ""
-    if model_path:
-        checkpoint = torch.load(model_path, map_location=device)
-        gnn.load_state_dict(checkpoint['model_state'])
-        optimizer.load_state_dict(checkpoint['optim_state'])
-        start_epoch = checkpoint['epoch'] + 1
+    saved = False
     for epoch in trange(start_epoch, nepochs, desc=f'Training GNN ({str(device).upper()})'):
         # backprop
         gnn.zero_grad()
@@ -154,14 +148,16 @@ if __name__ == '__main__':
                 'epoch': epoch, 
                 'model_state': gnn.state_dict(),
                 'optim_state': optimizer.state_dict()
-            }, checkpoint_path + ID + '.pth')
+            }, checkpoint_path)
+            saved = True
 
     # checkpoint the final model
-    torch.save({
-        'epoch': nepochs, 
-        'model_state': gnn.state_dict(),
-        'optim_state': optimizer.state_dict()
-    }, checkpoint_path + ID + '.pth')
+    if retrain and not saved:
+        torch.save({
+            'epoch': nepochs, 
+            'model_state': gnn.state_dict(),
+            'optim_state': optimizer.state_dict()
+        }, checkpoint_path)
 
     
     # write final results to output log
@@ -170,7 +166,7 @@ if __name__ == '__main__':
     with open('../figures/L_' + now + '.txt', 'w') as f:
         f.write(f'TIMESTAMP: {now}\n')
         f.write(f'Best: Loss={best_loss:.4e}, Utility={best_utility:.4f}\n')
-        f.write(f'Best Completion: {best_completion]}\n')
+        f.write(f'Best Completion: {best_completion}\n')
         f.write(f'Upper Bound on Min Class Completion (Utility): {upper_bound}\n')
 
     # === PLOT FINAL FIBER-TIME HISTOGRAM === #
@@ -218,7 +214,7 @@ if __name__ == '__main__':
     class_info = class_info.detach().cpu().numpy()
     for i in range(completions.shape[0]):
         plots_class.append(
-            (epochs, completions[i], rf'Class {i+1} ($N_{{{i}}} = {int(class_info[i][1])}$)', cmap(i % cmap.N))
+            (epochs, completions[i], rf'Class {i+1} ($T_{{{i}}} = {int(class_info[i][0])}$, $N_{{{i}}} = {int(class_info[i][1])}$)', cmap(i % cmap.N))
         )
     ncols = 2
     nrows = (NCLASSES + ncols - 1) // ncols
@@ -253,7 +249,8 @@ if __name__ == '__main__':
         raw_data = np.vstack([dist[k] for k in fibers])
 
         # 1) Round up each allocation to nearest multiple of time requirement
-        rounded = np.round(raw_data / class_req) * class_req
+        # rounded = np.round(raw_data / class_req) * class_req
+        rounded = raw_data
 
         # compute offsets for stacked bar
         cumulative = np.cumsum(rounded, axis=1)

@@ -10,7 +10,8 @@ else:
 
 # === PATHS === #
 datafile = '../params/increasing.txt'
-checkpoint_path = '../params/model_gnn_'
+checkpoint_path = '../models/model_gnn_dev.pth'
+model_pre_trained = '../models/model_gnn_core.pth'
 
 # === CONSTANTS === #
 NFIBERS = 2000  # number of fibers
@@ -19,6 +20,7 @@ NFIELDS = 10    # number of GE fields
 TOTAL_TIME = 42 # per‑fiber time budget
 
 # === TRAINING PARAMETERS === #
+retrain = False
 nepochs = 40_000
 Fdim = 10 # lifted dimension
 lr = 5e-4 # learning rate
