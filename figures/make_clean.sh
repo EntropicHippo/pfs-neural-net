@@ -14,7 +14,7 @@ for prefix in A B C D E L; do
             echo "Not enough ${ext} files to remove for type ${prefix}."
         fi
 
-        # ==== Rename step ====
+        # ==== Rename step ==== #
         remaining=( $(ls ${prefix}_*.${ext} 2>/dev/null | sort) )
         if [ ${#remaining[@]} -eq 1 ]; then
             src="${remaining[0]}"
@@ -27,4 +27,3 @@ for prefix in A B C D E L; do
 
     done
 done
-
