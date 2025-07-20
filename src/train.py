@@ -10,13 +10,6 @@ from datetime import datetime
 from tqdm import trange
 import os
 
-# === DEVICE SPEFICIATIONS ===
-ncores = os.cpu_count() or 1
-os.environ['OMP_NUM_THREADS'] = str(ncores)
-os.environ['MKL_NUM_THREADS'] = str(ncores)
-torch.set_num_threads(ncores)
-torch.set_num_interop_threads(ncores)
-
 def softfloor(x, sharpness=20, noiselevel=0.3):
     noise = noiselevel * (torch.rand_like(x) - 0.5)
     x = x + noise
@@ -119,6 +112,7 @@ if __name__ == '__main__':
             best_time = checkpoint['best_time']
             best_fiber_time = checkpoint['best_fiber_time']
             best_completion = checkpoint['best_completion']
+            best_galaxies = checkpoint['best_galaxies']
             best_model = checkpoint['model_state']
             best_optim = checkpoint['optim_state']
     else:
@@ -134,6 +128,7 @@ if __name__ == '__main__':
         best_time = np.zeros(NCLASSES * NFIBERS)
         best_fiber_time = np.zeros(NFIBERS)
         best_completion = np.zeros(NCLASSES)
+        best_galaxies = np.zeros(NCLASSES)
         best_model = gnn.state_dict()
         best_optim = optimizer.state_dict()
 
@@ -144,7 +139,7 @@ if __name__ == '__main__':
         gnn.zero_grad()
         graph_ = gnn(graph)
         sharp = sharps[0] + (sharps[1] - sharps[0]) * epoch / nepochs
-        loss, utility, completions[:,epoch], _, fiber_time, time, variance = loss_function(graph_, class_info, pclass=pclass, pfiber=pfiber, sharpness=sharp, finaloutput=True)
+        loss, utility, completions[:,epoch], n_prime, fiber_time, time, variance = loss_function(graph_, class_info, pclass=pclass, pfiber=pfiber, sharpness=sharp, finaloutput=True)
         # update parameters
         loss.backward()
         optimizer.step()
@@ -160,6 +155,7 @@ if __name__ == '__main__':
             best_time = time
             best_fiber_time = fiber_time
             best_completion = completions[:,epoch]
+            best_galaxies = n_prime
             best_model = gnn.state_dict()
             best_optim = optimizer.state_dict()
             # checkpoint the model
@@ -172,6 +168,7 @@ if __name__ == '__main__':
         'best_time': best_time,
         'best_fiber_time': best_fiber_time,
         'best_completion': best_completion,
+        'best_galaxies': best_galaxies,
         'losses': losses,
         'utilities': utilities,
         'completions': completions,
@@ -205,7 +202,7 @@ if __name__ == '__main__':
         updated_best_fiber_time = updated_best_time.view(-1, NCLASSES).sum(dim=1).detach().cpu().numpy()
         n_targets = data / class_req
         n_prime = n_targets.sum(axis=0)
-        N_i = class_info[:,1] / NFIELDS
+        N_i = class_info[:,1].detach().cpu().numpy() / NFIELDS
         updated_best_completion = n_prime / N_i
         updated_best_utility = updated_best_completion.min()
 
@@ -216,7 +213,7 @@ if __name__ == '__main__':
     # write final results to output log
     now = datetime.now().strftime("%Y-%m-%d@%H-%M-%S")
     upper_bound = NFIBERS * TOTAL_TIME / torch.sum(torch.prod(class_info, dim=1)) * NFIELDS
-    class_info = class_info.detach().cpu().numpy()
+    class_info_cpu = class_info.detach().cpu().numpy()
     with open('../figures/L_' + now + '.txt', 'w') as f:
         f.write(f'TIMESTAMP: {now}\n')
         f.write(f'Best: Loss={best_loss:.4e}, Utility={best_utility:.4f}\n')
@@ -267,7 +264,7 @@ if __name__ == '__main__':
     plots_class = []
     for i in range(completions.shape[0]):
         plots_class.append(
-            (epochs, completions[i], rf'Class {i+1} ($T_{{{i}}} = {int(class_info[i][0])}$, $N_{{{i}}} = {int(class_info[i][1])}$)', cmap(i % cmap.N))
+            (epochs, completions[i], rf'Class {i+1} ($T_{{{i}}} = {int(class_info_cpu[i][0])}$, $N_{{{i}}} = {int(class_info_cpu[i][1])}$)', cmap(i % cmap.N))
         )
     ncols = 2
     nrows = (NCLASSES + ncols - 1) // ncols

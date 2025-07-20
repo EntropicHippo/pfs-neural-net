@@ -1,6 +1,5 @@
 import torch
 
-# === DEVICE SPECIFICATIONS === #
 if torch.cuda.is_available():
     device = torch.device('cuda')
 elif getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available():
@@ -22,12 +21,12 @@ TOTAL_TIME = 42 # per‑fiber time budget
 
 # === TRAINING PARAMETERS === #
 retrain = False
-nepochs = 100_000
+nepochs = 200_000
 Fdim = 10 # lifted dimension
 lr = 5e-4 # learning rate
 pclass = 0.1 # penalty coefficient for class over-utilization
 pfiber = 0.1 # penalty coefficient for fiber over-utilization
 wutils = 2000.0
 wvar = 1.0
-sharps = [0.0, 50.0]
-min_sharp = 15.0
+sharps = [0.0, 100.0]
+min_sharp = 50.0
