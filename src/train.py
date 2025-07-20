@@ -106,23 +106,36 @@ if __name__ == '__main__':
         checkpoint = torch.load(model_pre_trained, map_location=device)
         gnn.load_state_dict(checkpoint['model_state'])
         optimizer.load_state_dict(checkpoint['optim_state'])
-        start_epoch = checkpoint['epoch'] + 1 if retrain else nepochs
+        start_epoch = checkpoint['best_epoch'] + 1
+        if not retrain: 
+            start_epoch = nepochs
+            losses = checkpoint['losses']
+            utilities = checkpoint['utilities']
+            completions = checkpoint['completions']
+            variances = checkpoint['variances']
+            best_utility = checkpoint['best_utility']
+            best_loss = checkpoint['best_loss']
+            best_time = checkpoint['best_time']
+            best_fiber_time = checkpoint['best_fiber_time']
+            best_completion = checkpoint['best_completion']
     else:
+        retrain = True
         start_epoch = 0
+        best_epoch = -1
+        losses = np.zeros(nepochs)
+        utilities = np.zeros(nepochs)
+        completions = np.zeros((NCLASSES, nepochs))
+        variances = np.zeros(nepochs)
+        best_utility = 0.0
+        best_loss = 0.0
+        best_time = np.zeros(NCLASSES * NFIBERS)
+        best_fiber_time = np.zeros(NFIBERS)
+        best_completion = np.zeros(NCLASSES)
+        best_model = None
+        best_optim = None
 
     # stored for analysis 
-    losses = np.zeros(nepochs)
-    objective = np.zeros(nepochs)
-    completions = np.zeros((NCLASSES, nepochs))
-    best_utility = 0.0
-    best_loss = 0.0
-    best_time = np.zeros(NCLASSES * NFIBERS)
-    best_fiber_time = np.zeros(NFIBERS)
-    best_completion = np.zeros(NCLASSES)
-    variances = np.zeros(nepochs)
-
     # training loop
-    saved = False
     for epoch in trange(start_epoch, nepochs, desc=f'Training GNN ({str(device).upper()})'):
         # backprop
         gnn.zero_grad()
@@ -134,35 +147,38 @@ if __name__ == '__main__':
         optimizer.step()
         # store for plotting
         losses[epoch] = loss.item()
-        objective[epoch] = utility
+        utilities[epoch] = utility
         variances[epoch] = variance
         if utility > best_utility and sharp > min_sharp: 
             # update bests
+            best_epoch = epoch
             best_loss = loss.item()
             best_utility = utility
             best_time = time
             best_fiber_time = fiber_time
             best_completion = completions[:,epoch]
+            best_model = gnn.state_dict()
+            best_optim = optimizer.state_dict()
             # checkpoint the model
-            torch.save({
-                'epoch': epoch, 
-                'model_state': gnn.state_dict(),
-                'optim_state': optimizer.state_dict()
-            }, checkpoint_path)
-            saved = True
+    torch.save({
+        'model_state': best_model,
+        'optim_state': best_optim,
+        'best_epoch': best_epoch,
+        'best_loss': best_loss,
+        'best_utility': best_utility,
+        'best_time': best_time,
+        'best_fiber_time': best_fiber_time,
+        'best_completion': best_completion,
+        'losses': losses,
+        'utilities': utilities,
+        'completions': completions,
+        'variances': variances
+    }, checkpoint_path)
 
-    # checkpoint the final model
-    if retrain and not saved:
-        torch.save({
-            'epoch': nepochs, 
-            'model_state': gnn.state_dict(),
-            'optim_state': optimizer.state_dict()
-        }, checkpoint_path)
-
-    
     # write final results to output log
     now = datetime.now().strftime("%Y-%m-%d@%H-%M-%S")
     upper_bound = NFIBERS * TOTAL_TIME / torch.sum(torch.prod(class_info, dim=1)) * NFIELDS
+    class_info = class_info.detach().cpu().numpy()
     with open('../figures/L_' + now + '.txt', 'w') as f:
         f.write(f'TIMESTAMP: {now}\n')
         f.write(f'Best: Loss={best_loss:.4e}, Utility={best_utility:.4f}\n')
@@ -186,7 +202,7 @@ if __name__ == '__main__':
     plots_aggregate = [
         (epochs, losses, 'Epochs', 'Regularized Loss', 'red'),
         (epochs_delayed, losses[start-1:], 'Epochs', 'Regularized Loss', 'red'),
-        (epochs, objective, 'Epochs', 'Min Class Completion', 'green'),
+        (epochs, utilities, 'Epochs', 'Min Class Completion', 'green'),
         (epochs, variances, 'Epochs', 'Variance', 'blue')
     ]
     nrows = len(plots_aggregate)
@@ -211,7 +227,6 @@ if __name__ == '__main__':
     # === PLOT PER-CLASS COMPLETION RATES === #
     cmap = plt.get_cmap('viridis', NCLASSES)
     plots_class = []
-    class_info = class_info.detach().cpu().numpy()
     for i in range(completions.shape[0]):
         plots_class.append(
             (epochs, completions[i], rf'Class {i+1} ($T_{{{i}}} = {int(class_info[i][0])}$, $N_{{{i}}} = {int(class_info[i][1])}$)', cmap(i % cmap.N))
@@ -236,8 +251,9 @@ if __name__ == '__main__':
     plt.savefig(f'../figures/C_{now}.png', dpi=600)
 
     # === PLOT FIBER ACTIONS FOR RANDOM FIBERS === #
-    fibers_rand = np.random.randint(low=0, high=NFIBERS, size=(10,))
-    fibers_slice = np.array(list(range(5)) + list(range(NFIBERS-5,NFIBERS)))
+    num_fibers_plotted = 10
+    fibers_rand = np.random.randint(low=0, high=NFIBERS, size=(2*num_fibers_plotted,))
+    fibers_slice = np.array(list(range(num_fibers_plotted)) + list(range(NFIBERS-num_fibers_plotted,NFIBERS)))
 
     class_req = class_info[:, 0]
 
@@ -249,8 +265,8 @@ if __name__ == '__main__':
         raw_data = np.vstack([dist[k] for k in fibers])
 
         # 1) Round up each allocation to nearest multiple of time requirement
-        # rounded = np.round(raw_data / class_req) * class_req
-        rounded = raw_data
+        rounded = np.round(raw_data / class_req) * class_req
+        # rounded = raw_data
 
         # compute offsets for stacked bar
         cumulative = np.cumsum(rounded, axis=1)
