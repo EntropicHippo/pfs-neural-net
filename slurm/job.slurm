@@ -7,9 +7,9 @@
 #SBATCH --gres=gpu:4                # number of gpus per node
 #SBATCH --constraint=a100           # explicitly run on A100 GPUs
 #SBATCH --time=00:15:00             # total run time limit (HH:MM:SS)
-##SBATCH --mail-type=begin           # send email when job begins
-##SBATCH --mail-type=end             # send email when job ends
-##SBATCH --mail-user=jl5824@princeton.edu
+#SBATCH --mail-type=begin           # send email when job begins
+#SBATCH --mail-type=end             # send email when job ends
+#SBATCH --mail-user=jl5824@princeton.edu
 
 cd ..
 module purge
