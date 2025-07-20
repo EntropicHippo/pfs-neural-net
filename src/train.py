@@ -178,6 +178,41 @@ if __name__ == '__main__':
         'variances': variances
     }, checkpoint_path)
 
+    # cleanup actionable timeslots 
+    class_req = class_info[:,0].detach().cpu().numpy()
+    def smart_round(fibers):
+        # stack into 2D array with shape (len(fibers), NCLASSES)
+        dist = {k: best_time[k * NCLASSES:(k + 1) * NCLASSES].detach().cpu().numpy() for k in fibers}
+        raw_data = np.vstack([dist[k] for k in fibers])
+
+        # round down each allocation to nearest multiple of time requirement
+        # and greedily fill leftover time per fiber with completion bottleneck
+        data = np.round(raw_data / class_req) * class_req
+        min_req = class_req.min()
+        for i, _ in enumerate(fibers):
+            while True: 
+                total_alloc = data[i].sum()
+                leftover = TOTAL_TIME - total_alloc
+                if leftover < min_req:
+                    break
+                eligible = np.where(class_req <= leftover)[0]
+                if eligible.size == 0:
+                    break
+                c = eligible[np.argmin(best_completion[eligible])]
+                data[i,c] += class_req[c]
+        
+        updated_best_time = torch.tensor(data.flatten(), dtype=best_time.dtype, device=best_time.device)
+        updated_best_fiber_time = updated_best_time.view(-1, NCLASSES).sum(dim=1).detach().cpu().numpy()
+        n_targets = data / class_req
+        n_prime = n_targets.sum(axis=0)
+        N_i = class_info[:,1] / NFIELDS
+        updated_best_completion = n_prime / N_i
+        updated_best_utility = updated_best_completion.min()
+
+        return data, updated_best_utility, updated_best_time, updated_best_fiber_time, updated_best_completion
+    
+    _, best_utility, best_time, best_fiber_time, best_completion = smart_round(list(range(NFIBERS)))
+
     # write final results to output log
     now = datetime.now().strftime("%Y-%m-%d@%H-%M-%S")
     upper_bound = NFIBERS * TOTAL_TIME / torch.sum(torch.prod(class_info, dim=1)) * NFIELDS
@@ -258,29 +293,8 @@ if __name__ == '__main__':
     fibers_rand = np.random.randint(low=0, high=NFIBERS, size=(2*num_fibers_plotted,))
     fibers_slice = np.array(list(range(num_fibers_plotted)) + list(range(NFIBERS-num_fibers_plotted,NFIBERS)))
 
-    class_req = class_info[:, 0]
-
-    def plot_fiber_actions(fibers, char, plot=True):
-        # stack into 2D array with shape (len(fibers), NCLASSES)
-        dist = {k: best_time[k * NCLASSES:(k + 1) * NCLASSES].detach().cpu().numpy() for k in fibers}
-        raw_data = np.vstack([dist[k] for k in fibers])
-
-        # round up each allocation to nearest multiple of time requirement
-        # and greedily fill leftover time per fiber with completion bottleneck
-        data = np.round(raw_data / class_req) * class_req
-        min_req = class_req.min()
-        for i, _ in enumerate(fibers):
-            while True: 
-                total_alloc = data[i].sum()
-                leftover = TOTAL_TIME - total_alloc
-                if leftover < min_req:
-                    break
-                eligible = np.where(class_req <= leftover)[0]
-                if eligible.size == 0:
-                    break
-                c = eligible[np.argmin(best_completion[eligible])]
-                data[i,c] += class_req[c]
-
+    def plot_fiber_actions(fibers, char):
+        data, *rest = smart_round(fibers)
         # compute offsets for stacked bar
         cumulative = np.cumsum(data, axis=1)
         left = np.hstack([np.zeros((data.shape[0], 1)), cumulative[:, :-1]])
@@ -293,8 +307,6 @@ if __name__ == '__main__':
         cmap = plt.get_cmap('tab20', NCLASSES)
         for cls in range(NCLASSES):
             ax.barh(y, data[:, cls], left=left[:, cls], height=height, color=cmap(cls), edgecolor='none', label=f'Class {cls + 1}')
-
-            # identify individual targets with lines
             for i, _ in enumerate(fibers):
                 n_targets = round(data[i, cls] / class_req[cls])
                 for m in range(1, n_targets):
@@ -306,7 +318,7 @@ if __name__ == '__main__':
         ax.set_yticklabels(fibers)
         ax.invert_yaxis()
         ax.set_xlabel('Time (hours)')
-        ax.set_title('Fiber Class-Times (rounded & segmented)')
+        ax.set_title('Fiber Class-Times')
         ax.legend(loc='best', bbox_to_anchor=(1, 0.5))
         plt.tight_layout()
         plt.savefig(f'../figures/{char}_{now}.png', dpi=600)
