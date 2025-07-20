@@ -12,6 +12,7 @@ else:
 datafile = '../params/increasing.txt'
 checkpoint_path = '../models/model_gnn_dev.pth'
 model_pre_trained = '../models/model_gnn_core.pth'
+# model_pre_trained = ''
 
 # === CONSTANTS === #
 NFIBERS = 2000  # number of fibers
@@ -29,4 +30,4 @@ pfiber = 0.1 # penalty coefficient for fiber over-utilization
 wutils = 2000.0
 wvar = 1.0
 sharps = [0.0, 20.0]
-min_sharp = 5.0
+min_sharp = 10.0

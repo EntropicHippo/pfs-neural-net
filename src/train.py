@@ -103,7 +103,7 @@ if __name__ == '__main__':
     gnn.train()
     optimizer = torch.optim.Adam(gnn.parameters(), lr=lr)
     if model_pre_trained:
-        checkpoint = torch.load(model_pre_trained, map_location=device)
+        checkpoint = torch.load(model_pre_trained, map_location=device, weights_only=False)
         gnn.load_state_dict(checkpoint['model_state'])
         optimizer.load_state_dict(checkpoint['optim_state'])
         start_epoch = checkpoint['best_epoch'] + 1
@@ -113,11 +113,14 @@ if __name__ == '__main__':
             utilities = checkpoint['utilities']
             completions = checkpoint['completions']
             variances = checkpoint['variances']
+            best_epoch = checkpoint['best_epoch']
             best_utility = checkpoint['best_utility']
             best_loss = checkpoint['best_loss']
             best_time = checkpoint['best_time']
             best_fiber_time = checkpoint['best_fiber_time']
             best_completion = checkpoint['best_completion']
+            best_model = checkpoint['model_state']
+            best_optim = checkpoint['optim_state']
     else:
         retrain = True
         start_epoch = 0
@@ -131,8 +134,8 @@ if __name__ == '__main__':
         best_time = np.zeros(NCLASSES * NFIBERS)
         best_fiber_time = np.zeros(NFIBERS)
         best_completion = np.zeros(NCLASSES)
-        best_model = None
-        best_optim = None
+        best_model = gnn.state_dict()
+        best_optim = optimizer.state_dict()
 
     # stored for analysis 
     # training loop
@@ -225,7 +228,7 @@ if __name__ == '__main__':
     plt.savefig(fname=f'../figures/A_{now}.png', dpi=600)
 
     # === PLOT PER-CLASS COMPLETION RATES === #
-    cmap = plt.get_cmap('viridis', NCLASSES)
+    cmap = plt.get_cmap('tab20', NCLASSES)
     plots_class = []
     for i in range(completions.shape[0]):
         plots_class.append(
@@ -257,51 +260,46 @@ if __name__ == '__main__':
 
     class_req = class_info[:, 0]
 
-    def plot_fiber_actions(fibers, char):
-        # build a dict of raw times for each fiber
+    def plot_fiber_actions(fibers, char, plot=True):
+        # stack into 2D array with shape (len(fibers), NCLASSES)
         dist = {k: best_time[k * NCLASSES:(k + 1) * NCLASSES].detach().cpu().numpy() for k in fibers}
-
-        # stack into 2D array: rows = fibers, cols = classes
         raw_data = np.vstack([dist[k] for k in fibers])
 
-        # 1) Round up each allocation to nearest multiple of time requirement
-        rounded = np.round(raw_data / class_req) * class_req
-        # rounded = raw_data
+        # round up each allocation to nearest multiple of time requirement
+        # and greedily fill leftover time per fiber with completion bottleneck
+        data = np.round(raw_data / class_req) * class_req
+        min_req = class_req.min()
+        for i, _ in enumerate(fibers):
+            while True: 
+                total_alloc = data[i].sum()
+                leftover = TOTAL_TIME - total_alloc
+                if leftover < min_req:
+                    break
+                eligible = np.where(class_req <= leftover)[0]
+                if eligible.size == 0:
+                    break
+                c = eligible[np.argmin(best_completion[eligible])]
+                data[i,c] += class_req[c]
 
         # compute offsets for stacked bar
-        cumulative = np.cumsum(rounded, axis=1)
-        left = np.hstack([np.zeros((rounded.shape[0], 1)), cumulative[:, :-1]])
+        cumulative = np.cumsum(data, axis=1)
+        left = np.hstack([np.zeros((data.shape[0], 1)), cumulative[:, :-1]])
 
         # prepare plot
-        fig, ax = plt.subplots(figsize=(8, 6))
+        _, ax = plt.subplots(figsize=(8, 6))
         y = np.arange(len(fibers))
         height = 0.8
 
-        cmap = plt.get_cmap('viridis', NCLASSES)
+        cmap = plt.get_cmap('tab20', NCLASSES)
         for cls in range(NCLASSES):
-            ax.barh(
-                y,
-                rounded[:, cls],
-                left=left[:, cls],
-                height=height,
-                color=cmap(cls),
-                edgecolor='none',
-                label=f'Class {cls + 1}'
-            )
+            ax.barh(y, data[:, cls], left=left[:, cls], height=height, color=cmap(cls), edgecolor='none', label=f'Class {cls + 1}')
 
-            # 2) demarcate individual targets with lines
-            for i, fiber in enumerate(fibers):
-                n_targets = round(rounded[i, cls] / class_req[cls])
+            # identify individual targets with lines
+            for i, _ in enumerate(fibers):
+                n_targets = round(data[i, cls] / class_req[cls])
                 for m in range(1, n_targets):
                     x = left[i, cls] + m * class_req[cls]
-                    ax.vlines(
-                        x,
-                        y[i] - height/2,
-                        y[i] + height/2,
-                        colors='white',
-                        linestyles='--',
-                        linewidth=0.8
-                    )
+                    ax.vlines(x, y[i] - height/2, y[i] + height/2, colors='white', linestyles='--', linewidth=0.8)
 
         # formatting
         ax.set_yticks(y)
