@@ -11,7 +11,7 @@ else:
 # === PATHS === #
 datafile = '../params/increasing.txt'
 checkpoint_path = '../models/model_gnn_dev.pth'
-model_pre_trained = '../models/model_gnn_core.pth'
+model_pre_trained = '../models/model_gnn_heavy.pth'
 # model_pre_trained = ''
 
 # === CONSTANTS === #
@@ -22,12 +22,12 @@ TOTAL_TIME = 42 # per‑fiber time budget
 
 # === TRAINING PARAMETERS === #
 retrain = False
-nepochs = 40_000
+nepochs = 100_000
 Fdim = 10 # lifted dimension
 lr = 5e-4 # learning rate
 pclass = 0.1 # penalty coefficient for class over-utilization
 pfiber = 0.1 # penalty coefficient for fiber over-utilization
 wutils = 2000.0
 wvar = 1.0
-sharps = [0.0, 20.0]
-min_sharp = 10.0
+sharps = [0.0, 50.0]
+min_sharp = 15.0
