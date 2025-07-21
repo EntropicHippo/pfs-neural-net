@@ -182,10 +182,21 @@ if __name__ == '__main__':
         dist = {k: best_time[k * NCLASSES:(k + 1) * NCLASSES].detach().cpu().numpy() for k in fibers}
         raw_data = np.vstack([dist[k] for k in fibers])
 
-        # round down each allocation to nearest multiple of time requirement
+        # round each allocation to nearest multiple of time requirement
         # and greedily fill leftover time per fiber with completion bottleneck
         data = np.round(raw_data / class_req) * class_req
         min_req = class_req.min()
+        # greedy trimming
+        for i, _ in enumerate(fibers):
+            while True:
+                total_alloc = data[i].sum()
+                overtime = total_alloc - TOTAL_TIME
+                eligible = np.where(data[i] > 0)[0]
+                if eligible.size == 0 or overtime <= 0:
+                    break
+                c = eligible[np.argmax(best_completion[eligible])]
+                data[i,c] -= class_req[c]
+        # greedy filling
         for i, _ in enumerate(fibers):
             while True: 
                 total_alloc = data[i].sum()
