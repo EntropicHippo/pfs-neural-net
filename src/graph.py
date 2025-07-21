@@ -66,7 +66,6 @@ def to_Graph(properties):
     )
     return data
 
-
 if __name__ == '__main__':
     """
     Script entrypoint: loads utility properties and fiber-galaxy pair files,
