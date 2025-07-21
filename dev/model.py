@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch_scatter import scatter
 from torch_geometric.data import Data
 from torch_geometric.nn import MetaLayer
+from config import Config
 
 __all__ = ["BipartiteData", "GNN"]
 
